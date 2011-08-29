@@ -1,0 +1,1 @@
+<p>User id: <?php echo $_GET['id'] ?></p>
