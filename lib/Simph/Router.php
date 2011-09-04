@@ -2,100 +2,37 @@
 /**
  * @author Francesco Terenzani <f.terenzani@gmail.com>
  * @copyright Copyright (c) 2011, Francesco Terenzani
+ * @category Simph
+ * @package Simph_Router
  */
-
 /**
- * Simph_Router implements a routing system for no MVC architecture
- * 
- * Simph_Router maps requests across file paths allowing parameter 
- * placeholders
- * 
- * The simplest usage:
- * <code>
- * require '/path/to/Simph/Router.php';
- * 
- * $router = new Simph_Router;
- * 
- * // HTTP path to your front controller
- * echo $router->web;
- * 
- * // path that match the request
- * $path = $router->matchRequest();
- * 
- * // The absolute path to show the post with the id = 7
- * $link = $router->pathFor('posts/show.php', array('id' => 7));
- * // $link is /http/path/to/frontcontroller/posts/show?id=7
- * 
- * // The absolute URL to show the post with the id = 7
- * $link = $router->urlFor('posts/show.php', array('id' => 7));
- * // $link is http://example.com/path/to/frontcontroller/posts/show?id=7
- * </code>
- * 
- * Advanced:
- * <code>
- * require '/path/to/Simph/Router.php';
- * 
- * $router = new Simph_Router;
- * 
- * // You can rewrite URL defining a route
- * $router->route('/posts/:id', 'posts/show.php')
- *    // Optionally you can define a regexp for validate the :id parameter
- *    ->def('id', '\d+');
- * 
- * // You can define optional sub pattern with parenthesis
- * $router->route('/posts(/page-:page)', 'posts/index.php')
- *    // And define either the regexp for validate the :page parameter and its 
- *    // default value
- *    ->def('page', '\d+', 1);
- * 
- * // path that match the request
- * $path = $router->matchRequest();
- * 
- * // The absolute path to show the post with the id = 7
- * $link = $router->pathFor('posts/show.php', array('id' => 7));
- * // $link is now /http/path/to/frontcontroller/posts/7
- * 
- * // The absolute URL  to show the post with the id = 7
- * $link = $router->urlFor('posts/show.php', array('id' => 7));
- * // $link is now http://example.com/path/to/frontcontroller/posts/7
- * </code>
- * 
- * Parameters can be defined globally: 
- * <code>
- * $router
- *   ->def('id', '\d+')
- *   ->def('page', '\d', '1')
- * 
- * $router->route('/posts/:id', 'posts/show.php');
- * $router->route('/posts(/page-:page)', 'posts/index.php') * 
- * </code>
- * 
+ * A simple router to map requests across file paths
  */
 class Simph_Router 
 {    
-    
+
     /**
-     * The HTTP path to your web root. The value is auto generated on 
-     * construction
+     * The HTTP path to your web root. The value is automatically obtained from
+     * $_SERVER['SCRIPT_NAME'] within the constructor
      * @var string
      */
     public $web;
-    
+
     /**
-     * The last matched request
+     * Last matched request
      * @var string
      */
     public $request;
-    
+
     /**
-     * The path that matched the request
+     * Path that match the request
      * @var string
      */
     public $pagePath;
     
     /**
-     * The front controller file name. Leave it blank if you are using 
-     * mod_rewrite to remove it on your URL.
+     * Front controller file name. Leave it blank if you are using
+     * mod_rewrite to remove it on your URLs.
      * @var string
      */
     protected $frontFile;
@@ -113,9 +50,9 @@ class Simph_Router
     protected $routes = array();
     
     /**
-     * @param string $frontFile  The front controller file name. Leave it blank 
+     * @param string $frontFile  Front controller file name. Leave it blank
      *                           if you are using mod_rewrite to remove it on 
-     *                           your URL.
+     *                           your URLs.
      */
     function  __construct($frontFile = '') {
 
@@ -142,14 +79,15 @@ class Simph_Router
     /**
      * Define a route
      * 
-     * @param string $pattern     Pattern to match the request. For example 
+     * @param string $pattern     Pattern of the request. For example
      *                            /users/:id
-     * @param string $pagePath    Page path to handle the request if pattern 
-     *                            match the request
+     * @param string $pagePath    Page path to return if the pattern match the
+     *                            request
      * @return Simph_Router_Route 
      */
     function route($pattern, $pagePath) {
         $route = new Simph_Router_Route($pattern);
+        $pagePath = ltrim($pagePath, '/');
         
         foreach ($this->globalDefinitions as $name => $def) {
             $route->def($name, $def[0], $def[1]);
@@ -162,28 +100,40 @@ class Simph_Router
     }
     
     /**
-     * Determine the handler file path based on the request
+     * Return the page path based on the request ($_SERVER['REQUEST_URI'])
      * 
-     * @return string  The path to handle the request
+     * @return string                      Page path that match the request
+     * @throws Simph_Router_HttpException  if the request contains illegal
+     *                                     characters or if the request should
+     *                                     be redirected but a parameter that is
+     *                                     riquired to obtain the new location
+     *                                     is not provided
      */    
     function matchRequest() {
         $request = explode('?', $_SERVER['REQUEST_URI']);
-        $request = preg_replace('#' . $this->web . '(?:' . $this->frontFile 
-                . '/)?(.*)#', "/$1", $request[0]);
+        $request = preg_replace('#' . preg_quote($this->web, '#') 
+                . '(?:' . $this->frontFile . '/)?(.*)#', "/$1", $request[0]);
         
         return $this->match($request);
         
     }
     
     /**
-     * Determine the handler file path based on the given argument
-     * 
-     * @param string $request   The request to match
-     * @return string           The path that match the request given as first 
-     *                          argument
+     * Return the page path based on the request given as argument
      *
+     * @param string $request              Request
+     * @return string                      Page path that match the request
+     * @throws Simph_Router_HttpException  if the request contains illegal
+     *                                     characters or if the request should
+     *                                     be redirected but a parameter that is
+     *                                     riquired to obtain the new location
+     *                                     is not provided
      */
     function match($request) {
+
+        if (empty($request) || $request[0] !== '/') {
+            throw new Simph_Router_HttpException('Bad Request', 400);
+        }
         
         $this->request = $request;
         
@@ -196,13 +146,14 @@ class Simph_Router
             }
         }
         
-        // Unrouted request can't contain "/_" because file starting with _ are
-        // private
-        if (strpos($request, '/_') !== false) {
-            throw new Simph_Router_HttpException('Bad Request', '400');
+        // Unrouted request may not contain "/_" because file starting with _
+        // identify a partial page, nor parent directory traversal
+        // ("../", "..\\" notation) to avoid Local File Inclusion (LFI) vulnerability         
+        if (preg_match('#\.\.[\\\/]|[\\\/]_#', $request)) {
+            throw new Simph_Router_HttpException('Bad Request', 400);
         }
         
-        // Redirect request that end with index to have consistent URLs
+        // Redirect request that ends with index to have consistent URLs
         if (substr($request, -5) === 'index') {
             $this->redirect($this->urlFor($request . '.php', $_GET), '301');
  
@@ -224,7 +175,7 @@ class Simph_Router
                 $this->redirect($this->urlFor($request, $_GET), '301');
 
             } catch (Simph_Router_Exception $e) {
-                throw new Simph_Router_HttpException('Not Found', '404');
+                throw new Simph_Router_HttpException('Not Found', 404);
 
             }
 
@@ -236,13 +187,12 @@ class Simph_Router
     }
     
     /**
-     * Creates the absolute URL of a resource without hostname
+     * Create the absolute URL of a page without hostname
      * 
-     * @param string $path           The path of a resource that have to be 
+     * @param string $path           The page path that have to be
      *                               transformed in a routed path
      * @param array|object $params   Parameters of the URL
-     * @return string                The absolute HTTP URL of the resource 
-     *                               without hostname
+     * @return string                The absolute URL of the page
      */
     function pathFor($path, $params = array()) {
         
@@ -286,13 +236,13 @@ class Simph_Router
     }
     
     /**
-     * Creates the absolute URL of a resource with the hostname
+     * Create the absolute URL of a page including the hostname
      * 
-     * @param string $path           The path of a resource that have to be 
+     * @param string $path           The page path that have to be
      *                               transformed in a routed path
      * @param array|object $params   Parameters of the URL
      * @param string $schema         Schema to use as prefix of the URL
-     * @return string                The absolute HTTP URL of the resource
+     * @return string                The absolute HTTP URL of the page
      */
     function urlFor($path, $params = array(), $schema = 'http://') {        
         $port = isset($_SERVER['HTTP_PORT'])? ':' . $_SERVER['HTTP_PORT']: '';
@@ -301,10 +251,10 @@ class Simph_Router
     }
 
     /**
-     * HTTP redirects
+     * HTTP redirect
      *
-     * @param string $url
-     * @param string|int $status
+     * @param string $url         Location
+     * @param string|int $status  Status code
      */
     function redirect($url, $status = '302') {
         header('Location: ' . $url, true, $status);
@@ -318,9 +268,10 @@ class Simph_Router
 
 
 /**
- * Simph_Router_Route is used to define a single route
+ * Define a single route
  */
-class Simph_Router_Route {
+class Simph_Router_Route
+{
 
     /**
      * The pattern of the request
@@ -335,21 +286,21 @@ class Simph_Router_Route {
     protected $defaults = array();
     
     /**
-     * Array of regexps describing each parameter that need to override the 
-     * default regexp definition
+     * Array of regular expressions describing each parameter that need to
+     * override the $defaultDefinition
      * @var array 
      */
     protected $definitions = array();
     
     /**
-     * Default regexp definition to match a parameter in the request
+     * Default regex definition of a parameter in the request
      * @var string
      */
-    protected $defaultDefinition = '([\w\d_\-]+)';
+    protected $defaultDefinition = '[A-Za-z0-9_-]+';
 
 
     /**
-     * Scalar array of paremeter placeholders
+     * Scalar array of possible paremeters
      * @var array
      */
     protected $variables = array();
@@ -362,34 +313,32 @@ class Simph_Router_Route {
     protected $optionals = array();
     
     /**
-     * Route implement a lazy setup. This var is used to know if the object is 
+     * Route implements a lazy setup. This var is used to know if the object is
      * already set up.
-     * @var null|bool
+     * @var null|bool  True after set up
      */
     protected $done;
     
     /**
-     * The regular expression to match the request
+     * The regular expression to preg_match the request
      * @var string
      */
-    protected $regexp;
+    protected $regex;
     
     
     /**
      * @param string $pattern 
      */
     function __construct($pattern) {
-
-        $this->pattern = $pattern;
+        $this->pattern = $pattern[0] === '/'? $pattern: '/' . $pattern;
 
     }
     
     /**
-     * Override the default regexp parameter definition and/or set a 
-     * default value of a optional parameter
+     * Define a parameter regex and/or its default value
      * 
      * @param string $param       The parameter name
-     * @param string $definition  A regexp defining the parameter
+     * @param string $definition  A regex defining the parameter
      * @param mixin $default      The default value of the parameter
      * @return Simph_Router_Route 
      */
@@ -429,11 +378,13 @@ class Simph_Router_Route {
         }
         
         /*
-         * Set up the regular expression to match the request
+         * Set up the regular expression to preg_match the request
          */
         $this->setUp();
 
-        if (preg_match("#^" . $this->regexp . "$#U", $request, $match)) {
+        if (preg_match("#^" . $this->regex . "$#U", $request, $match)) {
+
+            $params = $this->defaults;
 
             /*
              * shift the entire request from the first position
@@ -441,13 +392,13 @@ class Simph_Router_Route {
             array_shift($match);
             for ($i = 0, $j = count($match); $i < $j; $i++) {
                 if (isset($this->variables[$i])) {
-                    $this->defaults[$this->variables[$i]] = $match[$i];
+                    $params[$this->variables[$i]] = $match[$i];
 
                 }
 
             }
 
-            return $this->defaults;
+            return $params;
 
         }
 
@@ -456,19 +407,19 @@ class Simph_Router_Route {
     }
     
     /**
-     * Fill out the pattern with the given arguments and return the path to 
-     * link the resource.
+     * Fill out the pattern with the given arguments and return the path to
+     * link this route.
      * 
      * Placeholders in the pattern need to match the keys/properties of the 
      * array or object given as first argument. If the first argument is 
      * an object and no property match with a placeholder, the function check 
      * for a method getCamelizedVariableName. 
      * 
-     * If a required variable is not given, the function thrown an exception.
+     * If a required variable is not given, the function throws an exception.
      * 
-     * @param array|stdClass $values   Parameters to use in the link
-     * @return string                  Link path
-     * @throws Simph_Router_Route_Exception
+     * @param array|stdClass $values         Parameters to use in the link
+     * @return string                        Path to link this route
+     * @throws Simph_Router_Route_Exception  if a required variable is not given
      */
     function getPath($values = array()) {
 
@@ -528,8 +479,8 @@ class Simph_Router_Route {
     }
     
     /**
-     * Set up the regexp to match the request, the definitions of each variable, 
-     * the variable list itself and the list of optionals sub patterns
+     * Set up the regex to match the request, the definitions of each variable,
+     * the variable list itself and the list of optional sub patterns
      */
     protected function setUp() {
 
@@ -552,14 +503,14 @@ class Simph_Router_Route {
 
                 }
 
-                $regexp = preg_replace_callback('#:[\w\d_]+#', array($this, 'setRegexp'), str_replace('\\:', ':', preg_quote($pattern, '#')));
+                $regex = preg_replace_callback('#:[\w\d_]+#', array($this, 'setRegex'), str_replace('\\:', ':', preg_quote($pattern, '#')));
                 
                 if ($this->optionals) {
-                    $regexp = str_replace(array('(', ')'), array('(?:', ')?'), vsprintf($regexp, $this->optionals));
-                    $regexp = preg_replace_callback('#(?<!\?):[\w\d_]+#', array($this, 'setRegexp'), $regexp);
+                    $regex = str_replace(array('(', ')'), array('(?:', ')?'), vsprintf($regex, $this->optionals));
+                    $regex = preg_replace_callback('#(?<!\?):[\w\d_]+#', array($this, 'setRegex'), $regex);
                 }
 
-                $this->regexp = $regexp;
+                $this->regex = $regex;
 
             }
 
@@ -573,18 +524,20 @@ class Simph_Router_Route {
      * Callback used in $this->setUp() as argument of preg_replace_callback
      * 
      * @param array $match Param placeholder in the form :param_name
-     * @return string      Sub regexp to match the single parameter
+     * @return string      Sub regex to match the single parameter
      */
-    protected function setRegexp($match) {
+    protected function setRegex($match) {
+
+        $regex = $this->defaultDefinition;
 
         $var = substr($match[0], 1);
         $this->variables[] = $var;
         if (isset($this->definitions[$var])) {
-            return '(' . $this->definitions[$var] . ')';
+            $regex = $this->definitions[$var];
 
         }
 
-        return $this->defaultDefinition;
+        return '(' . $regex . ')';
 
 
     }
