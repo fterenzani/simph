@@ -136,53 +136,42 @@ class Simph_Router
         }
         
         $this->request = $request;
-        
-        // Check if the request match a route
-        foreach ($this->routes as $path => $route) {
-            if (false !== ($params = $route->match($request))) {
-                // Update $_GET
-                $_GET = $params + $_GET;
-                return $this->pagePath = $path;
-            }
-        }
-        
-        // Unrouted request may not contain "/_" because file starting with _
-        // identify a partial page, nor parent directory traversal
-        // ("../", "..\\" notation) to avoid Local File Inclusion (LFI) vulnerability         
-        if (preg_match('#\.\.[\\\/]|[\\\/]_#', $request)) {
-            throw new Simph_Router_HttpException('Bad Request', 400);
-        }
-        
-        // Redirect request that ends with index to have consistent URLs
-        if (substr($request, -5) === 'index') {
-            $this->redirect($this->urlFor($request . '.php', $_GET), '301');
- 
-        }
 
-        // Add index to request that end with /
-        if (substr($request, -1) === '/') {
-            $request .= 'index';
-        }
-        
-        // Add extension and remove the / as prefix
-        $request .= '.php';
-        $request = ltrim($request, '/');
-        
-        // The request match to a rewrited one 
-        if (isset($this->routes[$request])) {
-            // Redirect the request to the rewrited version
-            try {
-                $this->redirect($this->urlFor($request, $_GET), '301');
+        // If none route match the request
+        if (!($path = $this->routeMatch($request))) {
 
-            } catch (Simph_Router_Exception $e) {
-                throw new Simph_Router_HttpException('Not Found', 404);
+            $path = $this->filterPath($request);
+            
+            // Redirect request that ends with index to have consistent URLs
+            if (substr($path, -5) === 'index') {
+                $this->redirect($this->urlFor($path . '.php', $_GET), '301');
 
             }
 
-        } else {
-            return $this->pagePath = $request;
+            // Add index to path that end with /
+            if (substr($path, -1) === '/') {
+                $path .= 'index';
+            }
 
+            // Add extension and remove the / as prefix
+            $path .= '.php';
+            $path = ltrim($path, '/');
+
+            // The path match to a rewrited one
+            if (isset($this->routes[$path])) {
+                // Redirect the path to the rewrited version
+                try {
+                    $this->redirect($this->urlFor($path, $_GET), '301');
+
+                } catch (Simph_Router_Exception $e) {
+                    throw new Simph_Router_HttpException('Not Found', 404);
+
+                }
+
+            }
         }
+
+        return $this->pagePath = $path;
 
     }
     
@@ -202,6 +191,8 @@ class Simph_Router
             $path = '/';
 
         } else {
+            $path = ltrim($path, '/');
+
             if (isset($this->routes[$path])) {
                 $path = $this->routes[$path]->getPath($params);
 
@@ -261,6 +252,42 @@ class Simph_Router
         die;
 
     }
+
+    /**
+     * Check if the request match a route
+     * @param string $request
+     * @return bool|string      The page path if a route match, false otherwise
+     */
+    protected function routeMatch($request) {
+        foreach ($this->routes as $path => $route) {
+            if (false !== ($params = $route->match($request))) {
+                // Update $_GET
+                $_GET = $params + $_GET;
+                return $this->filterPath($path);
+            }
+        }
+    }
+
+    /**
+     * Replace null bytes and check for illegal chars
+     *
+     * @param string $path
+     * @return string
+     * @throws Simph_Router_HttpException if path contains illegal chars
+     */
+    protected function filterPath($path) {
+        // Paths may not contain "/_" or "\\_" because file starting with _
+        // identify a partial page, nor parent directory traversal
+        // ("../", "..\\" notation) to avoid Local File Inclusion (LFI) vulnerability
+        if (preg_match('#\.\.[\\\/]|[\\\/]_#', $path)) {
+            throw new Simph_Router_HttpException('Bad Request', 400);
+        }
+
+        // Let's remove null bytes if any
+        // http://www.php.net/manual/en/security.filesystem.nullbytes.php
+        return str_replace("\0", '', $path);
+
+    }
     
     
 }
@@ -310,7 +337,7 @@ class Simph_Router_Route
      * For example "(page/:page)"
      * @var array
      */
-    protected $optionals = array();
+    protected $subPatterns = array();
     
     /**
      * Route implements a lazy setup. This var is used to know if the object is
@@ -456,8 +483,8 @@ class Simph_Router_Route
 
                 }
 
-            } elseif (isset($this->optionals[$var])) {
-                $str = $this->optionals[$var];
+            } elseif (isset($this->subPatterns[$var])) {
+                $str = $this->subPatterns[$var];
                 $replace = '';
 
             } else {
@@ -490,26 +517,31 @@ class Simph_Router_Route
                 
                 $pattern = $this->pattern;
 
-                if (preg_match_all('#\(.*:([\w\d_]+).*\)#', $pattern, $match)) {
+                // Check for optional sub patterns
+                if (preg_match_all('#\(.*:([\w_]+).*\)#', $pattern, $match)) {
 
                     for ($i = 0, $j = count($match[0]); $i < $j; ++$i) {
 
                         $pattern = str_replace($match[0][$i], '%s', $pattern);
 
                         // array('page' => '(page/:page)')
-                        $this->optionals[$match[1][$i]] = $match[0][$i];
+                        $this->subPatterns[$match[1][$i]] = $match[0][$i];
 
                     }
 
                 }
 
-                $regex = preg_replace_callback('#:[\w\d_]+#', array($this, 'setRegex'), str_replace('\\:', ':', preg_quote($pattern, '#')));
-                
-                if ($this->optionals) {
-                    $regex = str_replace(array('(', ')'), array('(?:', ')?'), vsprintf($regex, $this->optionals));
-                    $regex = preg_replace_callback('#(?<!\?):[\w\d_]+#', array($this, 'setRegex'), $regex);
+                $pattern = preg_quote($pattern, '#');
+
+                if ($this->subPatterns) {
+                    $pattern = vsprintf($pattern, array_map(
+                            array($this, 'subPatternToRegex'), $this->subPatterns));
                 }
 
+                $regex = preg_replace_callback('#:[\w_]+#',
+                        array($this, 'setRegex'),
+                        str_replace('\\:', ':', $pattern));
+                
                 $this->regex = $regex;
 
             }
@@ -540,6 +572,15 @@ class Simph_Router_Route
         return '(' . $regex . ')';
 
 
+    }
+
+    /**
+     * @param string $subPattern  For example (page/:page)
+     * @return string             (?:page/:page)?
+     */
+    protected function subPatternToRegex($subPattern) {
+        return str_replace(array('\\(', '\\)', '\\:'), array('(?:', ')?', ':'),
+                preg_quote($subPattern));
     }
 
 }

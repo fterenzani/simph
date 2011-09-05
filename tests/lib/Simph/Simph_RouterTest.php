@@ -56,6 +56,10 @@ class Simph_RouterTest extends PHPUnit_Framework_TestCase {
                 $this->object->route('/something', 'some.php'),
                 'router() return a router');
 
+        // Check for preg_quote
+        $this->object->route('/subPa[ttern/([:a)', 'some.php');
+        $this->object->match('/subPa[ttern');
+
     }
 
     public function testMatchRequest() {
@@ -72,6 +76,12 @@ class Simph_RouterTest extends PHPUnit_Framework_TestCase {
 
     public function testMatch() {
 
+        $_GET = array();
+        $this->object->route('/test_var_regex/:var', 'test/regex.php');
+        $this->object->match('/test_var_regex/123');
+        $this->assertEquals(array('var' => '123'), $_GET);
+
+        $_GET = array();
         // set up some routes
         $this->object
             ->def('id', '[a-z]+')
@@ -121,6 +131,12 @@ class Simph_RouterTest extends PHPUnit_Framework_TestCase {
 
         $this->assertEquals('c.php', $path);
         $this->assertEquals(array('page' => '1'), $_GET);
+
+        // null byte filter
+        $path = $this->object->match("/config.ini\0");
+        $this->assertEquals('config.ini.php', $path);
+
+
 
     }
 
@@ -236,7 +252,7 @@ class Simph_RouterTest extends PHPUnit_Framework_TestCase {
                 $r1->pathFor('some.php', new TestArgs));
         $this->assertEquals($r1->web . 'some/',
                 $r1->pathFor('some.php'));
-
+        
 
     }
 
